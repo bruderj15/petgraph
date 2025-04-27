@@ -24,6 +24,7 @@ pub mod spfa;
 #[cfg(feature = "stable_graph")]
 pub mod steiner_tree;
 pub mod tred;
+pub mod truss_decomposition;
 
 use alloc::{vec, vec::Vec};
 use core::num::NonZeroUsize;
