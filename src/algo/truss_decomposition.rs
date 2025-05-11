@@ -2,10 +2,14 @@ use crate::graph::{EdgeIndex, NodeIndex, UnGraph};
 use crate::visit::{VisitMap, Visitable};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::hash::Hash;
 
-pub fn truss_decomposition<N, E>(graph: UnGraph<N, E>, h: usize) -> HashMap<EdgeIndex, usize> {
+pub fn truss_decomposition<N, E: core::fmt::Debug>(
+    graph: UnGraph<N, E>,
+    h: usize,
+) -> HashMap<(NodeIndex, NodeIndex), usize> {
     let mut graph = graph;
-    let mut bin = HashMap::<usize, HashSet<EdgeIndex>>::new();
+    let mut bin = HashMap::<usize, HashSet<(NodeIndex, NodeIndex)>>::new();
     let mut upper_trussness = 2;
     let mut trussness = HashMap::new();
     let mut sup = h_support(&graph, h);
@@ -19,21 +23,25 @@ pub fn truss_decomposition<N, E>(graph: UnGraph<N, E>, h: usize) -> HashMap<Edge
 
     for k in 2..=upper_trussness {
         while !bin.get(&k).unwrap_or(&HashSet::new()).is_empty() {
-            let e = *bin.get_mut(&k).unwrap().iter().next().unwrap();
-            trussness.insert(e, k);
+            let uv @ (u, v) = pick(bin.get_mut(&k).unwrap()).unwrap();
+            let e = graph.find_edge(u, v).unwrap();
+            trussness.insert(uv, k);
 
             let (u, v) = graph.edge_endpoints(e).unwrap();
             graph.remove_edge(e);
             let u_affected_edges = h_hop_edges_node(&graph, &u, h);
             let v_affected_edges = h_hop_edges_node(&graph, &v, h);
-            for e in u_affected_edges.union(&v_affected_edges).copied() {
-                let old_edge_upper_trussness = sup.get(&e).unwrap() + 2;
-                bin.get_mut(&old_edge_upper_trussness).unwrap().remove(&e);
-                let new_sup = h_support_edge(&graph, e, h);
-                sup.insert(e, new_sup);
+
+            for _e in u_affected_edges.union(&v_affected_edges).copied() {
+                let _uv @ (_u, _v) = graph.edge_endpoints(_e).unwrap();
+                let old_edge_upper_trussness = sup.get(&_uv).unwrap() + 2;
+                bin.get_mut(&old_edge_upper_trussness).unwrap().remove(&_uv);
+
+                let new_sup = h_support_edge(&graph, _e, h);
+                sup.insert(_uv, new_sup);
                 bin.entry(max(new_sup + 2, k))
                     .or_insert(HashSet::new())
-                    .insert(e);
+                    .insert(_uv);
             }
         }
     }
@@ -93,8 +101,8 @@ fn h_hop_edges_node<N, E>(
             continue;
         }
         for neighbor in graph.neighbors(node) {
-                h_hop_edges.insert(graph.find_edge(node, neighbor).unwrap());
-                bfs_q.push_back((neighbor, depth + 1));
+            h_hop_edges.insert(graph.find_edge(node, neighbor).unwrap());
+            bfs_q.push_back((neighbor, depth + 1));
         }
     }
 
@@ -108,25 +116,34 @@ fn h_support_edge<N, E>(graph: &UnGraph<N, E>, edge: EdgeIndex, h: usize) -> usi
     neighbors_u.intersection(&neighbors_v).count()
 }
 
-fn h_support<N, E>(graph: &UnGraph<N, E>, h: usize) -> HashMap<EdgeIndex, usize> {
+fn h_support<N, E>(graph: &UnGraph<N, E>, h: usize) -> HashMap<(NodeIndex, NodeIndex), usize> {
     let h_neighbors = h_hop_neighbors(graph, h);
     let mut sup_map = HashMap::new();
 
-    for e in graph.edge_indices() {
-        let (u, v) = graph.edge_endpoints(e).unwrap();
+    for e in graph.raw_edges() {
+        let (u, v) = (e.source(), e.target());
         let neighbors_u = h_neighbors.get(&u).unwrap();
         let neighbors_v = h_neighbors.get(&v).unwrap();
         let sup = neighbors_u.intersection(neighbors_v).count();
-        sup_map.insert(e, sup);
+        sup_map.insert((u, v), sup);
     }
 
     sup_map
+}
+
+fn pick<T>(set: &mut HashSet<T>) -> Option<T>
+where
+    T: Eq + Hash + Copy,
+{
+    let item = *set.iter().next()?;
+    set.take(&item)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::graph::UnGraph;
+    use std::prelude::v1::Vec;
 
     fn sample_graph() -> UnGraph<u32, ()> {
         UnGraph::<u32, ()>::from_edges(&[
@@ -164,7 +181,7 @@ mod test {
             NodeIndex::new(5),
             NodeIndex::new(7),
         ]);
-        
+
         assert_eq!(actual, expected);
     }
 
@@ -211,25 +228,26 @@ mod test {
             (NodeIndex::new(2), NodeIndex::new(5)),
             (NodeIndex::new(4), NodeIndex::new(7)),
         ]);
-        
+
         assert_eq!(actual, expected);
     }
-    
+
     #[test]
     fn should_compute_h_support_edge() {
         let g = sample_graph();
-        let actual = h_support_edge(&g, g.find_edge(NodeIndex::new(3), NodeIndex::new(6)).unwrap(), 3);
-        
+        let actual = h_support_edge(
+            &g,
+            g.find_edge(NodeIndex::new(3), NodeIndex::new(6)).unwrap(),
+            3,
+        );
+
         assert_eq!(actual, 6);
     }
 
     #[test]
     fn should_compute_h_support() {
         let g = sample_graph();
-        let actual = h_support(&g, 2)
-            .iter()
-            .map(|(e, sup)| (g.edge_endpoints(*e).unwrap(), *sup))
-            .collect::<HashSet<_>>();
+        let actual = h_support(&g, 2).into_iter().collect::<HashSet<_>>();
 
         let expected = HashSet::from([
             ((NodeIndex::new(1), NodeIndex::new(2)), 3),
@@ -253,8 +271,43 @@ mod test {
             ((NodeIndex::new(12), NodeIndex::new(14)), 4),
             ((NodeIndex::new(13), NodeIndex::new(14)), 5),
         ]);
-        
-        assert_eq!(actual, expected);
 
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn should_compute_trussness_1_hop() {
+        let g = sample_graph();
+        let actual = truss_decomposition(g.clone(), 1);
+        let expected = HashSet::from([
+            ((NodeIndex::new(1), NodeIndex::new(2)), 3),
+            ((NodeIndex::new(1), NodeIndex::new(4)), 3),
+            ((NodeIndex::new(2), NodeIndex::new(4)), 3),
+            ((NodeIndex::new(2), NodeIndex::new(5)), 2),
+            ((NodeIndex::new(3), NodeIndex::new(6)), 2),
+            ((NodeIndex::new(4), NodeIndex::new(7)), 2),
+            ((NodeIndex::new(5), NodeIndex::new(6)), 2),
+            ((NodeIndex::new(5), NodeIndex::new(7)), 2),
+            ((NodeIndex::new(6), NodeIndex::new(8)), 2),
+            ((NodeIndex::new(7), NodeIndex::new(8)), 3),
+            ((NodeIndex::new(7), NodeIndex::new(9)), 3),
+            ((NodeIndex::new(8), NodeIndex::new(9)), 3),
+            ((NodeIndex::new(8), NodeIndex::new(11)), 2),
+            ((NodeIndex::new(9), NodeIndex::new(10)), 2),
+            ((NodeIndex::new(9), NodeIndex::new(13)), 2),
+            ((NodeIndex::new(10), NodeIndex::new(11)), 2),
+            ((NodeIndex::new(11), NodeIndex::new(12)), 3),
+            ((NodeIndex::new(11), NodeIndex::new(14)), 3),
+            ((NodeIndex::new(12), NodeIndex::new(14)), 3),
+            ((NodeIndex::new(13), NodeIndex::new(14)), 2),
+        ]);
+
+        let mut actual_sorted: Vec<_> = actual.into_iter().collect();
+        let mut expected_sorted: Vec<_> = expected.into_iter().collect();
+
+        actual_sorted.sort();
+        expected_sorted.sort();
+
+        assert_eq!(actual_sorted, expected_sorted);
     }
 }
