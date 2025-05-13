@@ -35,7 +35,9 @@ pub fn truss_decomposition<N, E: core::fmt::Debug>(
             for _e in u_affected_edges.union(&v_affected_edges).copied() {
                 let _uv @ (_u, _v) = graph.edge_endpoints(_e).unwrap();
                 let old_edge_upper_trussness = sup.get(&_uv).unwrap() + 2;
-                bin.get_mut(&old_edge_upper_trussness).unwrap().remove(&_uv);
+                if let Some(old_trash) = bin.get_mut(&old_edge_upper_trussness) {
+                    old_trash.remove(&_uv);
+                }
 
                 let new_sup = h_support_edge(&graph, _e, h);
                 sup.insert(_uv, new_sup);
@@ -300,6 +302,42 @@ mod test {
             ((NodeIndex::new(11), NodeIndex::new(14)), 3),
             ((NodeIndex::new(12), NodeIndex::new(14)), 3),
             ((NodeIndex::new(13), NodeIndex::new(14)), 2),
+        ]);
+
+        let mut actual_sorted: Vec<_> = actual.into_iter().collect();
+        let mut expected_sorted: Vec<_> = expected.into_iter().collect();
+
+        actual_sorted.sort();
+        expected_sorted.sort();
+
+        assert_eq!(actual_sorted, expected_sorted);
+    }
+
+    #[test]
+    fn should_compute_trussness_2_hop() {
+        let g = sample_graph();
+        let actual = truss_decomposition(g.clone(), 2);
+        let expected = HashSet::from([
+            ((NodeIndex::new(1), NodeIndex::new(2)), 5),
+            ((NodeIndex::new(1), NodeIndex::new(4)), 5),
+            ((NodeIndex::new(2), NodeIndex::new(4)), 5),
+            ((NodeIndex::new(2), NodeIndex::new(5)), 5),
+            ((NodeIndex::new(3), NodeIndex::new(6)), 4),
+            ((NodeIndex::new(4), NodeIndex::new(7)), 5),
+            ((NodeIndex::new(5), NodeIndex::new(6)), 5),
+            ((NodeIndex::new(5), NodeIndex::new(7)), 5),
+            ((NodeIndex::new(6), NodeIndex::new(8)), 5),
+            ((NodeIndex::new(7), NodeIndex::new(8)), 6),
+            ((NodeIndex::new(7), NodeIndex::new(9)), 6),
+            ((NodeIndex::new(8), NodeIndex::new(9)), 6),
+            ((NodeIndex::new(8), NodeIndex::new(11)), 6),
+            ((NodeIndex::new(9), NodeIndex::new(10)), 6),
+            ((NodeIndex::new(9), NodeIndex::new(13)), 6),
+            ((NodeIndex::new(10), NodeIndex::new(11)), 6),
+            ((NodeIndex::new(11), NodeIndex::new(12)), 6),
+            ((NodeIndex::new(11), NodeIndex::new(14)), 6),
+            ((NodeIndex::new(12), NodeIndex::new(14)), 6),
+            ((NodeIndex::new(13), NodeIndex::new(14)), 6),
         ]);
 
         let mut actual_sorted: Vec<_> = actual.into_iter().collect();
