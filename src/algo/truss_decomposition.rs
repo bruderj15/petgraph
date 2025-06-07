@@ -27,7 +27,6 @@ pub fn truss_decomposition<N, E: core::fmt::Debug>(
             let e = graph.find_edge(u, v).unwrap();
             trussness.insert(uv, k);
 
-            let (u, v) = graph.edge_endpoints(e).unwrap();
             graph.remove_edge(e);
             let u_affected_edges = h_hop_edges_node(&graph, &u, h);
             let v_affected_edges = h_hop_edges_node(&graph, &v, h);
